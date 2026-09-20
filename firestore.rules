@@ -1,0 +1,53 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn() && request.auth.token.admin == true;
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    match /products/{productId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /orders/{orderId} {
+      allow create: if signedIn() &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.status == 'Pending' &&
+        request.resource.data.createdAt == request.time;
+      allow read: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
+      allow update: if isAdmin() || (
+        signedIn() &&
+        resource.data.userId == request.auth.uid &&
+        resource.data.status == 'Pending' &&
+        request.resource.data.status == 'Cancelled by customer' &&
+        request.resource.data.statusUpdatedAt == request.time &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'statusUpdatedAt'])
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read, create, update: if isOwner(userId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /admins/{adminId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /settings/{settingId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+  }
+}
